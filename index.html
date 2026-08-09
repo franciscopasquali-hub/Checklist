@@ -235,6 +235,25 @@ var POSTOS = [
   { code:"HX", name:"Posto Huxley" }
 ];
 
+var GERENTE_POR_POSTO = {
+  "PB":"Jeferson Dias",
+  "CR":"Adriano Nava",
+  "CT":"Fernando Gomes",
+  "PO":"Marcilei Camargo",
+  "PM":"Everton Wachtel",
+  "PW":"Rafael Fernandes",
+  "SF":"Jos\u00e9 Wilinski",
+  "PC":"Jackson Gouvea",
+  "PL":"Jos\u00e9 Victor Corr\u00eaa",
+  "ST":"Leandro Galdino",
+  "SR":"Lucas Santos Lima",
+  "PP":"Lucas Casapula",
+  "SA":"Eduardo Bachega",
+  "PG":"Weslei Smit",
+  "AB":"Jackson Taborda",
+  "PN":"Patricia Miranda"
+};
+
 var SECTIONS_DEF = [
   { title: "Pista e P\u00e1tio", items: [
     "Pista e p\u00e1tio limpos",
@@ -454,7 +473,14 @@ function buildMetaCard(){
   fg.value = state.gerente;
   fd.textContent = formatDateBR(state.data);
   syncGerenteName();
-  sel.onchange = function(){ state.posto = sel.value; scheduleAutosave(); };
+  sel.onchange = function(){
+    state.posto = sel.value;
+    var known = GERENTE_POR_POSTO[sel.value] || '';
+    state.gerente = known;
+    fg.value = known;
+    syncGerenteName();
+    scheduleAutosave();
+  };
   fg.oninput = function(){
     state.gerente = fg.value;
     syncGerenteName();
