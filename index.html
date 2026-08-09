@@ -675,6 +675,18 @@ function countUnanswered(){
   return c;
 }
 
+function countTotals(){
+  var t = { sim:0, nao:0, pend:0 };
+  state.sections.forEach(function(sec){
+    sec.items.forEach(function(it){
+      if(it.answer==='sim') t.sim++;
+      else if(it.answer==='nao') t.nao++;
+      else t.pend++;
+    });
+  });
+  return t;
+}
+
 function validateMeta(){
   if(!state.posto || !state.gerente.trim()){
     showModal({ title:'Dados incompletos', message:'Selecione o posto e informe o gerente antes de gerar o relat\u00f3rio.', buttons:[{label:'Ok', primary:true}] });
@@ -721,6 +733,23 @@ function doGenerate(){
   doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
   doc.text('Posto: '+postoTxt, marginX, y); y += 5.5;
   doc.text('Gerente: '+state.gerente+'    Data: '+formatDateBR(state.data), marginX, y);
+  y += 7;
+
+  var totals = countTotals();
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  var tx = marginX;
+  var simTxt = totals.sim+' SIM';
+  doc.setTextColor(1,163,80);
+  doc.text(simTxt, tx, y);
+  tx += doc.getTextWidth(simTxt) + 4;
+  var naoTxt = totals.nao+' N\u00c3O';
+  doc.setTextColor(193,57,43);
+  doc.text(naoTxt, tx, y);
+  tx += doc.getTextWidth(naoTxt) + 4;
+  doc.setTextColor(130,130,130);
+  doc.text(totals.pend+' pendente(s)', tx, y);
+  doc.setTextColor(30,30,30);
+  doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
   y += 9;
 
   state.sections.forEach(function(sec){
@@ -826,7 +855,8 @@ function showResultPanel(){
 
 function buildEmailBody(){
   var postoTxt = postoLabel(state.posto);
-  var lines = ['Checklist de visita \u2014 '+postoTxt, 'Gerente: '+state.gerente, 'Data: '+formatDateBR(state.data), ''];
+  var totals = countTotals();
+  var lines = ['Checklist de visita \u2014 '+postoTxt, 'Gerente: '+state.gerente, 'Data: '+formatDateBR(state.data), 'Total: '+totals.sim+' SIM \u00b7 '+totals.nao+' N\u00c3O \u00b7 '+totals.pend+' pendente(s)', ''];
   state.sections.forEach(function(sec){
     lines.push(sec.title.toUpperCase()+':');
     sec.items.forEach(function(it){
