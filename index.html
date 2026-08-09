@@ -123,6 +123,7 @@ canvas.sig-pad{width:100%;height:120px;display:block;background:repeating-linear
 .hist-ger{font-size:13px;color:var(--ink-soft);margin:2px 0 8px;}
 .hist-stats{display:flex;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;flex-wrap:wrap;}
 .hist-stats .s{color:var(--green);} .hist-stats .n{color:var(--red);} .hist-stats .p{color:var(--ink-soft);}
+.hist-score{font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;margin-top:6px;}
 .hist-del{float:right;background:none;border:none;color:var(--red);font-family:'IBM Plex Mono',monospace;font-size:11px;text-decoration:underline;}
 .empty-state{margin:40px 20px;text-align:center;color:var(--ink-soft);font-size:14px;}
 
@@ -751,6 +752,22 @@ function getPriorNaoCount(si, ii){
   return count;
 }
 
+function computeScore(){
+  var weighted = 0, totalItems = 0;
+  state.sections.forEach(function(sec, si){
+    totalItems += sec.items.length;
+    sec.items.forEach(function(item, ii){
+      if(item.answer==='nao'){
+        weighted += getPriorNaoCount(si, ii) + 1;
+      }
+    });
+  });
+  var pct = 100 - (weighted/totalItems)*100;
+  if(pct < 0) pct = 0;
+  if(pct > 100) pct = 100;
+  return Math.round(pct);
+}
+
 function doGenerate(){
   if(!window.jspdf){
     showModal({ title:'Erro', message:'A biblioteca de PDF n\u00e3o carregou. Verifique sua conex\u00e3o e tente novamente.', buttons:[{label:'Ok', primary:true}] });
@@ -787,6 +804,14 @@ function doGenerate(){
   tx += doc.getTextWidth(naoTxt) + 4;
   doc.setTextColor(130,130,130);
   doc.text(totals.pend+' pendente(s)', tx, y);
+  doc.setTextColor(30,30,30);
+  y += 7;
+
+  var score = computeScore();
+  var scoreColor = score>=90 ? [1,163,80] : (score>=70 ? [184,98,4] : [193,57,43]);
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.setTextColor(scoreColor[0],scoreColor[1],scoreColor[2]);
+  doc.text('Nota do posto: '+score+'%', marginX, y);
   doc.setTextColor(30,30,30);
   doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
   y += 9;
@@ -885,7 +910,7 @@ function doGenerate(){
 }
 
 async function saveToHistory(){
-  var rec = { ts: Date.now(), postoCode: state.posto, posto: postoLabel(state.posto), gerente: state.gerente, data: state.data, sim:0, nao:0, pend:0, obsCount:0, answers:[] };
+  var rec = { ts: Date.now(), postoCode: state.posto, posto: postoLabel(state.posto), gerente: state.gerente, data: state.data, sim:0, nao:0, pend:0, obsCount:0, answers:[], score:0 };
   state.sections.forEach(function(sec){
     sec.items.forEach(function(it){
       if(it.answer==='sim') rec.sim++;
@@ -895,6 +920,7 @@ async function saveToHistory(){
       rec.answers.push(it.answer || null);
     });
   });
+  rec.score = computeScore();
   history.unshift(rec);
   if(history.length > 50) history = history.slice(0,50);
   await storageSet('historico', history);
@@ -910,7 +936,8 @@ function showResultPanel(){
 function buildEmailBody(){
   var postoTxt = postoLabel(state.posto);
   var totals = countTotals();
-  var lines = ['Checklist de visita \u2014 '+postoTxt, 'Gerente: '+state.gerente, 'Data: '+formatDateBR(state.data), 'Total: '+totals.sim+' SIM \u00b7 '+totals.nao+' N\u00c3O \u00b7 '+totals.pend+' pendente(s)', ''];
+  var score = computeScore();
+  var lines = ['Checklist de visita \u2014 '+postoTxt, 'Gerente: '+state.gerente, 'Data: '+formatDateBR(state.data), 'Total: '+totals.sim+' SIM \u00b7 '+totals.nao+' N\u00c3O \u00b7 '+totals.pend+' pendente(s)', 'Nota do posto: '+score+'%', ''];
   state.sections.forEach(function(sec, si){
     lines.push(sec.title.toUpperCase()+':');
     sec.items.forEach(function(it, ii){
@@ -979,11 +1006,17 @@ function renderHistory(){
     var card = document.createElement('div');
     card.className = 'hist-card';
     var obsExtra = rec.obsCount ? ('<span>\u00b7 '+rec.obsCount+' c/ obs.</span>') : '';
+    var scoreHtml = '';
+    if(typeof rec.score === 'number'){
+      var scoreColor = rec.score>=90 ? '#01A350' : (rec.score>=70 ? '#B86204' : '#C1392B');
+      scoreHtml = '<div class="hist-score" style="color:'+scoreColor+'">Nota do posto: '+rec.score+'%</div>';
+    }
     card.innerHTML =
       '<button class="hist-del" data-idx="'+idx+'" type="button">excluir</button>'+
       '<div class="hist-top"><span class="posto">'+escapeHtml(rec.posto||'\u2014')+'</span><span class="data mono">'+formatDateBR(rec.data)+'</span></div>'+
       '<div class="hist-ger">Gerente: '+escapeHtml(rec.gerente||'\u2014')+'</div>'+
-      '<div class="hist-stats"><span class="s">'+rec.sim+' SIM</span><span class="n">'+rec.nao+' N\u00c3O</span><span class="p">'+rec.pend+' pend.</span>'+obsExtra+'</div>';
+      '<div class="hist-stats"><span class="s">'+rec.sim+' SIM</span><span class="n">'+rec.nao+' N\u00c3O</span><span class="p">'+rec.pend+' pend.</span>'+obsExtra+'</div>'+
+      scoreHtml;
     list.appendChild(card);
   });
   $$('.hist-del', list).forEach(function(btn){
