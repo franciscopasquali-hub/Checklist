@@ -29,8 +29,6 @@ body{padding-bottom:96px;}
 
 /* topbar */
 .topbar{position:sticky;top:0;z-index:30;background:var(--brand-dark);color:#fff;padding:14px 16px 10px;}
-.topbar-row{display:flex;align-items:center;gap:10px;}
-.topbar h1.wordmark{font-family:'Oswald',sans-serif;font-weight:700;font-size:21px;letter-spacing:.05em;text-transform:uppercase;margin:0;color:#fff;}
 .topbar .subtitle{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.12em;color:#8FD6AE;text-transform:uppercase;margin:2px 0 0;}
 .tabs{display:flex;gap:6px;margin-top:12px;}
 .tab-btn{flex:1;background:var(--brand-dark-2);border:1px solid #1F6B44;color:#BFE7D0;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.05em;text-transform:uppercase;padding:8px 6px;border-radius:6px;}
@@ -132,10 +130,7 @@ canvas.sig-pad{width:100%;height:120px;display:block;background:repeating-linear
 <body>
 
 <div class="topbar">
-  <div class="topbar-row">
-    <h1 class="wordmark">Rede <span>Eleva</span></h1>
-  </div>
-  <p class="subtitle">Checklist de visita &middot; posto de combust&iacute;vel</p>
+  <p class="subtitle">Checklist de visita &middot; Rede Eleva</p>
   <div class="tabs">
     <button class="tab-btn active" id="tab-new" type="button">Novo checklist</button>
     <button class="tab-btn" id="tab-hist" type="button">Hist&oacute;rico</button>
@@ -323,21 +318,30 @@ function escapeHtml(s){
 /* ---------- storage ---------- */
 async function storageGet(key){
   try{
-    if(!window.storage) return null;
-    var r = await window.storage.get(key,false);
-    return r ? JSON.parse(r.value) : null;
+    if(window.storage){
+      var r = await window.storage.get(key,false);
+      return r ? JSON.parse(r.value) : null;
+    }
+    var raw = localStorage.getItem('checklist_'+key);
+    return raw ? JSON.parse(raw) : null;
   }catch(e){ return null; }
 }
 async function storageSet(key, val){
   try{
-    if(!window.storage) return;
-    await window.storage.set(key, JSON.stringify(val), false);
+    if(window.storage){
+      await window.storage.set(key, JSON.stringify(val), false);
+      return;
+    }
+    localStorage.setItem('checklist_'+key, JSON.stringify(val));
   }catch(e){ /* ignore */ }
 }
 async function storageDelete(key){
   try{
-    if(!window.storage) return;
-    await window.storage.delete(key,false);
+    if(window.storage){
+      await window.storage.delete(key,false);
+      return;
+    }
+    localStorage.removeItem('checklist_'+key);
   }catch(e){ /* ignore */ }
 }
 function scheduleAutosave(){
