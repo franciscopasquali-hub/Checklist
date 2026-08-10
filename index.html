@@ -433,6 +433,13 @@ function formatDateBR(iso){
   return parts[2]+'/'+parts[1]+'/'+parts[0];
 }
 
+function formatDateFilename(iso){
+  if(!iso) return '';
+  var parts = iso.split('-');
+  if(parts.length!==3) return iso;
+  return parts[2]+'-'+parts[1]+'-'+parts[0];
+}
+
 function postoLabel(code){
   var p = POSTOS.filter(function(x){ return x.code===code; })[0];
   return p ? (p.code+' \u2014 '+p.name) : code;
@@ -1027,7 +1034,7 @@ function doGenerate(){
   };
   var doc = buildPdfDoc(model);
   var safePosto = (state.posto || 'posto').replace(/[^a-z0-9]+/gi,'_');
-  var filename = 'Checklist_'+safePosto+'_'+state.data+'.pdf';
+  var filename = 'Checklist_'+safePosto+'_'+formatDateFilename(state.data)+'.pdf';
   var blob = doc.output('blob');
   currentPdf = { blob: blob, filename: filename };
 
@@ -1096,7 +1103,7 @@ async function openHistoryPdf(rec, btn){
     };
     var pdfDoc = buildPdfDoc(model);
     var safePosto = (rec.postoCode || 'posto').replace(/[^a-z0-9]+/gi,'_');
-    var filename = 'Checklist_'+safePosto+'_'+rec.data+'.pdf';
+    var filename = 'Checklist_'+safePosto+'_'+formatDateFilename(rec.data)+'.pdf';
     var url = URL.createObjectURL(pdfDoc.output('blob'));
     var a = document.createElement('a');
     a.href = url; a.download = filename;
