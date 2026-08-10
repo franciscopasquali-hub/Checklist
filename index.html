@@ -401,6 +401,7 @@ var SECTIONS_DEF = [
 var state = null;
 var history = [];
 var currentPdf = null;
+var currentHistoryDocId = null;
 var autosaveTimer = null;
 
 function $(s, ctx){ return (ctx||document).querySelector(s); }
@@ -848,6 +849,7 @@ function getPriorNaoCount(si, ii){
   idx += ii;
   var count = 0;
   history.forEach(function(rec){
+    if(rec._id === currentHistoryDocId) return;
     if(rec.postoCode === state.posto && Array.isArray(rec.answers) && rec.answers[idx]==='nao'){
       count++;
     }
@@ -1079,7 +1081,7 @@ async function openHistoryPdf(rec, btn){
             photos.push({ dataURL: durl, width: dims.width, height: dims.height });
           }catch(e){ /* skip broken photo */ }
         }
-        items.push({ label: it.label, answer: it.answer, obs: it.obs, photos: photos, reincidence: 0 });
+        items.push({ label: it.label, answer: it.answer, obs: it.obs, photos: photos, reincidence: it.reincidence || 0 });
       }
       sections.push({ title: rec.sections[si].title, items: items });
     }
@@ -1147,10 +1149,11 @@ async function uploadPhotosForRecord(docId, recSections){
 }
 
 async function saveToHistory(){
-  var docRef = db.collection('checklists').doc();
-  var recSections = state.sections.map(function(sec){
-    return { title: sec.title, items: sec.items.map(function(it){
-      return { label: it.label, answer: it.answer, obs: it.obs, photos: [] };
+  var docRef = currentHistoryDocId ? db.collection('checklists').doc(currentHistoryDocId) : db.collection('checklists').doc();
+  currentHistoryDocId = docRef.id;
+  var recSections = state.sections.map(function(sec, si){
+    return { title: sec.title, items: sec.items.map(function(it, ii){
+      return { label: it.label, answer: it.answer, obs: it.obs, photos: [], reincidence: it.answer==='nao' ? getPriorNaoCount(si, ii) : 0 };
     })};
   });
 
@@ -1276,6 +1279,7 @@ function resetForm(){
   storageDelete('draft');
   state = freshState();
   currentPdf = null;
+  currentHistoryDocId = null;
   buildMetaCard();
   buildSections();
   paintSig('responsavel');
