@@ -124,13 +124,38 @@ canvas.sig-pad{width:100%;height:120px;display:block;background:repeating-linear
 .hist-stats{display:flex;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;flex-wrap:wrap;}
 .hist-stats .s{color:var(--green);} .hist-stats .n{color:var(--red);} .hist-stats .p{color:var(--ink-soft);}
 .hist-score{font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;margin-top:6px;}
+.hist-pdf{margin-top:10px;width:100%;padding:9px;border-radius:6px;border:1px solid var(--brand);background:#fff;color:var(--brand-deep);font-family:'Oswald',sans-serif;text-transform:uppercase;font-size:12.5px;font-weight:600;}
+.hist-pdf:disabled{opacity:.5;}
 .hist-del{float:right;background:none;border:none;color:var(--red);font-family:'IBM Plex Mono',monospace;font-size:11px;text-decoration:underline;}
 .empty-state{margin:40px 20px;text-align:center;color:var(--ink-soft);font-size:14px;}
+
+/* login gate */
+.login-gate{position:fixed;inset:0;background:var(--brand-dark);display:flex;align-items:center;justify-content:center;padding:24px;z-index:200;}
+.login-gate.hidden{display:none;}
+.login-card{background:#fff;border-radius:12px;padding:26px 22px;max-width:320px;width:100%;text-align:center;}
+.login-title{font-family:'Oswald',sans-serif;text-transform:uppercase;font-size:22px;letter-spacing:.04em;margin:0 0 4px;color:var(--brand-dark);}
+.login-sub{font-size:13px;color:var(--ink-soft);margin:0 0 18px;}
+.login-card input{width:100%;border:1px solid var(--line);border-radius:6px;padding:11px 12px;font-size:15px;margin-bottom:10px;background:#FBFAF6;}
+.login-card button{width:100%;border:none;border-radius:8px;padding:12px;background:var(--brand);color:#fff;font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:.04em;font-size:14px;font-weight:600;margin-top:4px;}
+.login-error{color:var(--red);font-size:12.5px;margin:10px 0 0;}
 
 .hidden{display:none !important;}
 </style>
 </head>
 <body>
+
+<div id="login-gate" class="login-gate">
+  <div class="login-card">
+    <h1 class="login-title">Rede Eleva</h1>
+    <p class="login-sub">Checklist de visita &middot; entre para continuar</p>
+    <input id="login-email" type="email" placeholder="Email" autocomplete="username">
+    <input id="login-pass" type="password" placeholder="Senha" autocomplete="current-password">
+    <button id="login-btn" type="button">Entrar</button>
+    <p id="login-error" class="login-error hidden"></p>
+  </div>
+</div>
+
+<div id="app-content" class="hidden">
 
 <div class="topbar">
   <div class="topbar-row">
@@ -208,10 +233,86 @@ canvas.sig-pad{width:100%;height:120px;display:block;background:repeating-linear
   </div>
 </div>
 
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/12.17.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.17.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 (function(){
 "use strict";
+
+/* =========================================================
+   COLE AQUI A CONFIGURA\u00c7\u00c3O DO SEU PROJETO FIREBASE
+   (Configura\u00e7\u00f5es do projeto > Geral > Seus apps > ic\u00f4one Web)
+   Substitua os valores abaixo pelos que o Firebase te mostrar.
+========================================================= */
+var firebaseConfig = {
+  apiKey: "COLE_AQUI",
+  authDomain: "COLE_AQUI",
+  projectId: "COLE_AQUI",
+  storageBucket: "COLE_AQUI",
+  messagingSenderId: "COLE_AQUI",
+  appId: "COLE_AQUI"
+};
+
+firebase.initializeApp(firebaseConfig);
+var auth = firebase.auth();
+var db = firebase.firestore();
+
+/* =========================================================
+   COLE AQUI SUA CONFIGURA\u00c7\u00c3O DO CLOUDINARY (para as fotos)
+   (Dashboard do Cloudinary > "Cloud name" no topo da p\u00e1gina,
+   e o nome do upload preset "unsigned" que voc\u00ea criar)
+========================================================= */
+var CLOUDINARY_CLOUD_NAME = "COLE_AQUI";
+var CLOUDINARY_UPLOAD_PRESET = "COLE_AQUI";
+
+var appStarted = false;
+
+function initAuthGate(){
+  var loginBtn = document.getElementById('login-btn');
+  var emailInput = document.getElementById('login-email');
+  var passInput = document.getElementById('login-pass');
+  var errorEl = document.getElementById('login-error');
+
+  loginBtn.addEventListener('click', function(){
+    errorEl.classList.add('hidden');
+    var email = emailInput.value.trim();
+    var pass = passInput.value;
+    if(!email || !pass){
+      errorEl.textContent = 'Preencha email e senha.';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+    loginBtn.disabled = true;
+    auth.signInWithEmailAndPassword(email, pass)
+      .catch(function(err){
+        errorEl.textContent = 'N\u00e3o foi poss\u00edvel entrar. Verifique email e senha.';
+        errorEl.classList.remove('hidden');
+      })
+      .finally(function(){ loginBtn.disabled = false; });
+  });
+
+  passInput.addEventListener('keydown', function(e){
+    if(e.key === 'Enter') loginBtn.click();
+  });
+
+  auth.onAuthStateChanged(function(user){
+    if(user){
+      document.getElementById('login-gate').classList.add('hidden');
+      document.getElementById('app-content').classList.remove('hidden');
+      if(!appStarted){
+        appStarted = true;
+        startApp();
+      }
+    } else {
+      document.getElementById('login-gate').classList.remove('hidden');
+      document.getElementById('app-content').classList.add('hidden');
+    }
+  });
+}
 
 var RESPONSAVEL_FIXO = "Francisco Pasquali";
 
@@ -768,11 +869,7 @@ function computeScore(){
   return Math.round(pct);
 }
 
-function doGenerate(){
-  if(!window.jspdf){
-    showModal({ title:'Erro', message:'A biblioteca de PDF n\u00e3o carregou. Verifique sua conex\u00e3o e tente novamente.', buttons:[{label:'Ok', primary:true}] });
-    return;
-  }
+function buildPdfDoc(model){
   var jsPDF = window.jspdf.jsPDF;
   var doc = new jsPDF({ unit:'mm', format:'a4' });
   var marginX = 15, y = 18, pageW = 210, pageH = 297, contentW = pageW - marginX*2;
@@ -781,17 +878,15 @@ function doGenerate(){
     if(y + h > pageH - 18){ doc.addPage(); y = 18; }
   }
 
-  var postoTxt = postoLabel(state.posto);
-
   doc.setFont('helvetica','bold'); doc.setFontSize(15);
   doc.text('CHECKLIST DE VISITA \u2014 REDE ELEVA', marginX, y);
   y += 8;
   doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
-  doc.text('Posto: '+postoTxt, marginX, y); y += 5.5;
-  doc.text('Gerente: '+state.gerente+'    Data: '+formatDateBR(state.data), marginX, y);
+  doc.text('Posto: '+model.postoDisplay, marginX, y); y += 5.5;
+  doc.text('Gerente: '+model.gerente+'    Data: '+formatDateBR(model.data), marginX, y);
   y += 7;
 
-  var totals = countTotals();
+  var totals = model.totals;
   doc.setFont('helvetica','bold'); doc.setFontSize(11);
   var tx = marginX;
   var simTxt = totals.sim+' SIM';
@@ -807,7 +902,7 @@ function doGenerate(){
   doc.setTextColor(30,30,30);
   y += 7;
 
-  var score = computeScore();
+  var score = model.score;
   var scoreColor = score>=90 ? [1,163,80] : (score>=70 ? [184,98,4] : [193,57,43]);
   doc.setFont('helvetica','bold'); doc.setFontSize(11);
   doc.setTextColor(scoreColor[0],scoreColor[1],scoreColor[2]);
@@ -816,7 +911,7 @@ function doGenerate(){
   doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
   y += 9;
 
-  state.sections.forEach(function(sec, si){
+  model.sections.forEach(function(sec){
     ensureSpace(12);
     doc.setFont('helvetica','bold'); doc.setFontSize(12);
     doc.setFillColor(225,245,234);
@@ -827,7 +922,7 @@ function doGenerate(){
     y += 8;
     doc.setFont('helvetica','normal'); doc.setFontSize(10);
 
-    sec.items.forEach(function(item, ii){
+    sec.items.forEach(function(item){
       var status = item.answer==='sim' ? 'SIM' : (item.answer==='nao' ? 'N\u00c3O' : '\u2014');
       var lines = doc.splitTextToSize(status+'  \u00b7  '+item.label, contentW-4);
       ensureSpace(lines.length*5+3);
@@ -838,18 +933,15 @@ function doGenerate(){
       doc.setTextColor(30,30,30);
       y += lines.length*5 + 1;
 
-      if(item.answer==='nao'){
-        var priorCount = getPriorNaoCount(si, ii);
-        if(priorCount > 0){
-          doc.setFont('helvetica','bold'); doc.setFontSize(9);
-          doc.setTextColor(184,98,4);
-          var warnLines = doc.splitTextToSize('REINCIDENTE \u2014 '+(priorCount+1)+'\u00aa vez neste posto ('+priorCount+' visita(s) anterior(es) com esta n\u00e3o conformidade)', contentW-8);
-          ensureSpace(warnLines.length*4.6+2);
-          doc.text(warnLines, marginX+6, y);
-          y += warnLines.length*4.6+2;
-          doc.setFont('helvetica','normal'); doc.setFontSize(10);
-          doc.setTextColor(30,30,30);
-        }
+      if(item.answer==='nao' && item.reincidence > 0){
+        doc.setFont('helvetica','bold'); doc.setFontSize(9);
+        doc.setTextColor(184,98,4);
+        var warnLines = doc.splitTextToSize('REINCIDENTE \u2014 '+(item.reincidence+1)+'\u00aa vez neste posto ('+item.reincidence+' visita(s) anterior(es) com esta n\u00e3o conformidade)', contentW-8);
+        ensureSpace(warnLines.length*4.6+2);
+        doc.text(warnLines, marginX+6, y);
+        y += warnLines.length*4.6+2;
+        doc.setFont('helvetica','normal'); doc.setFontSize(10);
+        doc.setTextColor(30,30,30);
       }
 
       if(item.obs && item.obs.trim()){
@@ -886,9 +978,10 @@ function doGenerate(){
   ['responsavel','gerente'].forEach(function(key, idx){
     var x = marginX + idx*(sigW+10);
     var label = key==='responsavel' ? 'Respons\u00e1vel' : 'Gerente';
-    doc.text(label+': '+(state.sig[key].nome || '\u2014'), x, y);
-    if(state.sig[key].img){
-      try{ doc.addImage(state.sig[key].img, 'PNG', x, y+3, sigW, 22); }catch(e){}
+    var sig = model.sig[key] || {};
+    doc.text(label+': '+(sig.nome || '\u2014'), x, y);
+    if(sig.img){
+      try{ doc.addImage(sig.img, 'PNG', x, y+3, sigW, 22); }catch(e){}
     }
     doc.line(x, y+27, x+sigW, y+27);
   });
@@ -901,6 +994,34 @@ function doGenerate(){
     doc.text('P\u00e1gina '+p+' de '+totalPages, pageW-marginX-24, pageH-8);
   }
 
+  return doc;
+}
+
+function doGenerate(){
+  if(!window.jspdf){
+    showModal({ title:'Erro', message:'A biblioteca de PDF n\u00e3o carregou. Verifique sua conex\u00e3o e tente novamente.', buttons:[{label:'Ok', primary:true}] });
+    return;
+  }
+  var totals = countTotals();
+  var score = computeScore();
+  var model = {
+    postoDisplay: postoLabel(state.posto),
+    gerente: state.gerente,
+    data: state.data,
+    totals: totals,
+    score: score,
+    sig: state.sig,
+    sections: state.sections.map(function(sec, si){
+      return { title: sec.title, items: sec.items.map(function(item, ii){
+        return {
+          label: item.label, answer: item.answer, obs: item.obs,
+          photos: item.photos,
+          reincidence: item.answer==='nao' ? getPriorNaoCount(si, ii) : 0
+        };
+      })};
+    })
+  };
+  var doc = buildPdfDoc(model);
   var safePosto = (state.posto || 'posto').replace(/[^a-z0-9]+/gi,'_');
   var filename = 'Checklist_'+safePosto+'_'+state.data+'.pdf';
   var blob = doc.output('blob');
@@ -909,8 +1030,148 @@ function doGenerate(){
   saveToHistory().then(showResultPanel);
 }
 
+function getImageDims(dataURL){
+  return new Promise(function(resolve){
+    var img = new Image();
+    img.onload = function(){ resolve({ width: img.width, height: img.height }); };
+    img.onerror = function(){ resolve({ width: 100, height: 100 }); };
+    img.src = dataURL;
+  });
+}
+
+function urlToDataURL(url){
+  return fetch(url).then(function(res){ return res.blob(); }).then(function(blob){
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onload = function(){ resolve(reader.result); };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  });
+}
+
+async function openHistoryPdf(rec, btn){
+  if(!window.jspdf){
+    showModal({ title:'Erro', message:'A biblioteca de PDF n\u00e3o carregou. Verifique sua conex\u00e3o e tente novamente.', buttons:[{label:'Ok', primary:true}] });
+    return;
+  }
+  if(!Array.isArray(rec.sections)){
+    showModal({ title:'PDF indispon\u00edvel', message:'Esse registro foi salvo antes da sincroniza\u00e7\u00e3o com a nuvem e n\u00e3o tem os dados completos para remontar o PDF.', buttons:[{label:'Ok', primary:true}] });
+    return;
+  }
+  var originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Gerando...';
+  try{
+    var sections = [];
+    for(var si=0; si<rec.sections.length; si++){
+      var items = [];
+      for(var ii=0; ii<rec.sections[si].items.length; ii++){
+        var it = rec.sections[si].items[ii];
+        var photos = [];
+        var urls = it.photos || [];
+        for(var pi=0; pi<urls.length; pi++){
+          try{
+            var durl = await urlToDataURL(urls[pi]);
+            var dims = await getImageDims(durl);
+            photos.push({ dataURL: durl, width: dims.width, height: dims.height });
+          }catch(e){ /* skip broken photo */ }
+        }
+        items.push({ label: it.label, answer: it.answer, obs: it.obs, photos: photos, reincidence: 0 });
+      }
+      sections.push({ title: rec.sections[si].title, items: items });
+    }
+    var model = {
+      postoDisplay: rec.posto,
+      gerente: rec.gerente,
+      data: rec.data,
+      totals: { sim: rec.sim, nao: rec.nao, pend: rec.pend },
+      score: rec.score,
+      sig: rec.sig || { responsavel:{}, gerente:{} },
+      sections: sections
+    };
+    var pdfDoc = buildPdfDoc(model);
+    var safePosto = (rec.postoCode || 'posto').replace(/[^a-z0-9]+/gi,'_');
+    var filename = 'Checklist_'+safePosto+'_'+rec.data+'.pdf';
+    var url = URL.createObjectURL(pdfDoc.output('blob'));
+    var a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+  }catch(e){
+    showModal({ title:'Erro', message:'N\u00e3o foi poss\u00edvel gerar o PDF desse registro.', buttons:[{label:'Ok', primary:true}] });
+  }finally{
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+function dataURLtoBlob(dataURL){
+  var parts = dataURL.split(',');
+  var mimeMatch = parts[0].match(/:(.*?);/);
+  var mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+  var binary = atob(parts[1]);
+  var arr = new Uint8Array(binary.length);
+  for(var i=0;i<binary.length;i++){ arr[i] = binary.charCodeAt(i); }
+  return new Blob([arr], { type: mime });
+}
+
+function uploadToCloudinary(dataURL){
+  var blob = dataURLtoBlob(dataURL);
+  var formData = new FormData();
+  formData.append('file', blob);
+  formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+  var url = 'https://api.cloudinary.com/v1_1/'+CLOUDINARY_CLOUD_NAME+'/image/upload';
+  return fetch(url, { method:'POST', body: formData })
+    .then(function(res){
+      if(!res.ok) throw new Error('upload failed: '+res.status);
+      return res.json();
+    })
+    .then(function(data){ return data.secure_url; });
+}
+
+async function uploadPhotosForRecord(docId, recSections){
+  for(var si=0; si<recSections.length; si++){
+    for(var ii=0; ii<recSections[si].items.length; ii++){
+      var origPhotos = state.sections[si].items[ii].photos || [];
+      var urls = [];
+      for(var pi=0; pi<origPhotos.length; pi++){
+        var url = await uploadToCloudinary(origPhotos[pi].dataURL);
+        urls.push(url);
+      }
+      recSections[si].items[ii].photos = urls;
+    }
+  }
+}
+
 async function saveToHistory(){
-  var rec = { ts: Date.now(), postoCode: state.posto, posto: postoLabel(state.posto), gerente: state.gerente, data: state.data, sim:0, nao:0, pend:0, obsCount:0, answers:[], score:0 };
+  var docRef = db.collection('checklists').doc();
+  var recSections = state.sections.map(function(sec){
+    return { title: sec.title, items: sec.items.map(function(it){
+      return { label: it.label, answer: it.answer, obs: it.obs, photos: [] };
+    })};
+  });
+
+  var photosOk = true;
+  try{
+    await uploadPhotosForRecord(docRef.id, recSections);
+  }catch(e){
+    photosOk = false;
+  }
+
+  var rec = {
+    ts: Date.now(),
+    postoCode: state.posto,
+    posto: postoLabel(state.posto),
+    gerente: state.gerente,
+    data: state.data,
+    sim:0, nao:0, pend:0, obsCount:0, answers:[],
+    sections: recSections,
+    sig: {
+      responsavel: { nome: state.sig.responsavel.nome || '', img: state.sig.responsavel.img || null },
+      gerente: { nome: state.sig.gerente.nome || '', img: state.sig.gerente.img || null }
+    }
+  };
   state.sections.forEach(function(sec){
     sec.items.forEach(function(it){
       if(it.answer==='sim') rec.sim++;
@@ -921,10 +1182,38 @@ async function saveToHistory(){
     });
   });
   rec.score = computeScore();
-  history.unshift(rec);
-  if(history.length > 50) history = history.slice(0,50);
-  await storageSet('historico', history);
-  renderHistory();
+
+  try{
+    await docRef.set(rec);
+    if(!photosOk){
+      showModal({ title:'Fotos n\u00e3o sincronizadas', message:'O checklist foi salvo no hist\u00f3rico, mas algumas fotos n\u00e3o foram enviadas \u00e0 nuvem (conex\u00e3o instável). Elas podem n\u00e3o aparecer se voc\u00ea abrir esse relat\u00f3rio de outro aparelho.', buttons:[{label:'Ok', primary:true}] });
+    }
+  }catch(e){
+    showModal({ title:'Erro ao salvar no hist\u00f3rico', message:'N\u00e3o foi poss\u00edvel salvar na nuvem. Verifique sua conex\u00e3o. O PDF gerado ainda est\u00e1 dispon\u00edvel para baixar/enviar.', buttons:[{label:'Ok', primary:true}] });
+  }
+}
+
+function subscribeHistory(){
+  db.collection('checklists').orderBy('ts','desc').limit(50)
+    .onSnapshot(function(snapshot){
+      history = snapshot.docs.map(function(doc){
+        var d = doc.data();
+        d._id = doc.id;
+        return d;
+      });
+      renderHistory();
+    }, function(err){
+      var list = document.getElementById('history-list');
+      if(list) list.innerHTML = '<div class="empty-state">N\u00e3o foi poss\u00edvel carregar o hist\u00f3rico da nuvem. Verifique sua conex\u00e3o.</div>';
+    });
+}
+
+async function deleteHistoryRecord(rec){
+  try{
+    await db.collection('checklists').doc(rec._id).delete();
+  }catch(e){
+    showModal({ title:'Erro', message:'N\u00e3o foi poss\u00edvel excluir esse registro. Tente novamente.', buttons:[{label:'Ok', primary:true}] });
+  }
 }
 
 function showResultPanel(){
@@ -1016,23 +1305,27 @@ function renderHistory(){
       '<div class="hist-top"><span class="posto">'+escapeHtml(rec.posto||'\u2014')+'</span><span class="data mono">'+formatDateBR(rec.data)+'</span></div>'+
       '<div class="hist-ger">Gerente: '+escapeHtml(rec.gerente||'\u2014')+'</div>'+
       '<div class="hist-stats"><span class="s">'+rec.sim+' SIM</span><span class="n">'+rec.nao+' N\u00c3O</span><span class="p">'+rec.pend+' pend.</span>'+obsExtra+'</div>'+
-      scoreHtml;
+      scoreHtml+
+      '<button class="hist-pdf" data-idx="'+idx+'" type="button">Ver PDF</button>';
     list.appendChild(card);
   });
   $$('.hist-del', list).forEach(function(btn){
     btn.addEventListener('click', function(){
       var idx = parseInt(btn.dataset.idx, 10);
+      var rec = history[idx];
       showModal({
-        title:'Excluir registro', message:'Remover este checklist do hist\u00f3rico?',
+        title:'Excluir registro', message:'Remover este checklist do hist\u00f3rico? (As fotos continuam guardadas no Cloudinary, sem custo, mas deixam de aparecer no app.)',
         buttons:[
           { label:'Cancelar' },
-          { label:'Excluir', primary:true, onClick: async function(){
-              history.splice(idx,1);
-              await storageSet('historico', history);
-              renderHistory();
-            } }
+          { label:'Excluir', primary:true, onClick: function(){ deleteHistoryRecord(rec); } }
         ]
       });
+    });
+  });
+  $$('.hist-pdf', list).forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var idx = parseInt(btn.dataset.idx, 10);
+      openHistoryPdf(history[idx], btn);
     });
   });
 }
@@ -1085,24 +1378,22 @@ function showDraftBanner(draft){
 }
 
 /* ---------- init ---------- */
-async function init(){
+async function startApp(){
   state = freshState();
   populatePostoSelect();
   var draft = await storageGet('draft');
-  var hist = await storageGet('historico');
-  history = hist || [];
 
   buildMetaCard();
   buildSections();
   buildSignatures();
-  renderHistory();
+  subscribeHistory();
   bindNav();
   bindActions();
 
   if(draft){ showDraftBanner(draft); }
 }
 
-init();
+initAuthGate();
 
 })();
 </script>
