@@ -80,7 +80,11 @@ body{padding-bottom:96px;}
 
 .item{background:var(--card);border:1px solid var(--line);border-radius:8px;margin-bottom:8px;padding:10px 12px;}
 .item-main{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.item-label-wrap{display:flex;align-items:center;gap:6px;flex:1;min-width:0;}
 .item-label{font-size:14.5px;line-height:1.3;}
+.prev-alert{flex-shrink:0;width:21px;height:21px;border-radius:50%;border:none;background:#FFE8B8;color:#B86204;font-size:12px;line-height:21px;text-align:center;padding:0;}
+.prev-detail-photos{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+.prev-detail-photos img{width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:pointer;}
 
 /* yes/no buttons */
 .yn{display:flex;gap:6px;flex-shrink:0;}
@@ -136,6 +140,8 @@ canvas.sig-pad{width:100%;height:120px;display:block;background:repeating-linear
 
 /* history */
 .history-list{margin:14px;}
+.hist-filter{margin:14px 14px 0;}
+.hist-filter select{width:100%;border:1px solid var(--line);border-radius:6px;padding:9px 10px;font-size:14px;font-family:'Inter',sans-serif;background:#FBFAF6;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%236B7178'><path d='M5.5 7.5l4.5 4.5 4.5-4.5z'/></svg>");background-repeat:no-repeat;background-position:right 10px center;background-size:16px;}
 .hist-card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;}
 .hist-top{display:flex;justify-content:space-between;align-items:baseline;}
 .hist-top .posto{font-family:'Oswald',sans-serif;font-size:16px;text-transform:uppercase;color:var(--brand-dark);}
@@ -248,6 +254,9 @@ canvas.sig-pad{width:100%;height:120px;display:block;background:repeating-linear
 </div>
 
 <div id="view-hist" class="hidden">
+  <div class="hist-filter">
+    <select id="hist-filter-posto"></select>
+  </div>
   <div class="history-list" id="history-list"></div>
 </div>
 
@@ -430,6 +439,7 @@ var state = null;
 var history = [];
 var currentPdf = null;
 var currentHistoryDocId = null;
+var histFilterPosto = '';
 var autosaveTimer = null;
 
 function $(s, ctx){ return (ctx||document).querySelector(s); }
@@ -601,6 +611,25 @@ function populatePostoSelect(){
   });
 }
 
+function populateHistFilter(){
+  var sel = document.getElementById('hist-filter-posto');
+  sel.innerHTML = '';
+  var allOpt = document.createElement('option');
+  allOpt.value = ''; allOpt.textContent = 'Todos os postos';
+  sel.appendChild(allOpt);
+  POSTOS.forEach(function(p){
+    var opt = document.createElement('option');
+    opt.value = p.code;
+    opt.textContent = p.code+' \u2014 '+p.name;
+    sel.appendChild(opt);
+  });
+  sel.value = histFilterPosto;
+  sel.onchange = function(){
+    histFilterPosto = sel.value;
+    renderHistory();
+  };
+}
+
 function syncGerenteName(){
   state.sig.gerente.nome = state.gerente;
   var el = $('#ger-name-fixed');
@@ -614,6 +643,53 @@ function findLastVisit(postoCode){
     }
   }
   return null;
+}
+
+function getPrevItemFlag(si, ii){
+  if(!state.posto) return null;
+  var rec = findLastVisit(state.posto);
+  if(!rec) return null;
+  var sec = rec.sections[si];
+  var it = sec && sec.items && sec.items[ii];
+  if(!it) return null;
+  var hasObs = it.obs && it.obs.trim();
+  var hasPhotos = it.photos && it.photos.length;
+  if(!hasObs && !hasPhotos) return null;
+  return { obs: it.obs, photos: it.photos || [], answer: it.answer, data: rec.data };
+}
+
+function openPrevItemDetail(label, flag){
+  var overlay = $('#overlay');
+  $('#modal-title').textContent = label;
+  var msg = $('#modal-message');
+  msg.innerHTML = '';
+  var infoP = document.createElement('p');
+  var statusTxt = flag.answer==='nao' ? 'N\u00c3O' : (flag.answer==='sim' ? 'SIM' : '\u2014');
+  infoP.textContent = 'Marcado em ' + formatDateBR(flag.data) + ' \u2014 ' + statusTxt;
+  msg.appendChild(infoP);
+  if(flag.obs && flag.obs.trim()){
+    var obsP = document.createElement('p');
+    obsP.textContent = flag.obs.trim();
+    msg.appendChild(obsP);
+  }
+  if(flag.photos && flag.photos.length){
+    var row = document.createElement('div');
+    row.className = 'prev-detail-photos';
+    flag.photos.forEach(function(url){
+      var img = document.createElement('img');
+      img.src = url;
+      img.addEventListener('click', function(){ openImagePreview(url); });
+      row.appendChild(img);
+    });
+    msg.appendChild(row);
+  }
+  var actions = $('#modal-actions');
+  actions.innerHTML = '';
+  var btn = document.createElement('button');
+  btn.type='button'; btn.className='primary'; btn.textContent='Fechar';
+  btn.addEventListener('click', function(){ overlay.classList.add('hidden'); });
+  actions.appendChild(btn);
+  overlay.classList.remove('hidden');
 }
 
 function renderPrevVisitContent(rec){
@@ -691,6 +767,7 @@ function buildMetaCard(){
     fg.value = known;
     syncGerenteName();
     updatePrevVisitPanel();
+    buildSections();
     scheduleAutosave();
   };
   fg.oninput = function(){
@@ -708,16 +785,33 @@ function updateCount(si){
   if(el) el.textContent = answered+'/'+sec.items.length+' respondidos';
 }
 
-function buildItemRow(item, si){
+function buildItemRow(item, si, ii){
   var row = document.createElement('div');
   row.className = 'item';
 
   var main = document.createElement('div');
   main.className = 'item-main';
+  var labelWrap = document.createElement('span');
+  labelWrap.className = 'item-label-wrap';
   var lbl = document.createElement('span');
   lbl.className = 'item-label';
   lbl.textContent = item.label;
-  main.appendChild(lbl);
+  labelWrap.appendChild(lbl);
+
+  var prevFlag = getPrevItemFlag(si, ii);
+  if(prevFlag){
+    var alertBtn = document.createElement('button');
+    alertBtn.type = 'button';
+    alertBtn.className = 'prev-alert';
+    alertBtn.textContent = '\u26a0';
+    alertBtn.title = 'Teve observa\u00e7\u00e3o ou foto na \u00faltima visita';
+    alertBtn.addEventListener('click', function(e){
+      e.stopPropagation();
+      openPrevItemDetail(item.label, prevFlag);
+    });
+    labelWrap.appendChild(alertBtn);
+  }
+  main.appendChild(labelWrap);
 
   var yn = document.createElement('div');
   yn.className = 'yn';
@@ -826,8 +920,8 @@ function buildSections(){
     var num = String(si+1).padStart(2,'0');
     head.innerHTML = '<h2>\u00c1rea '+num+' \u2014 '+escapeHtml(sec.title)+'</h2><span class="count mono" id="cnt-'+si+'"></span>';
     area.appendChild(head);
-    sec.items.forEach(function(item){
-      area.appendChild(buildItemRow(item, si));
+    sec.items.forEach(function(item, ii){
+      area.appendChild(buildItemRow(item, si, ii));
     });
     container.appendChild(area);
     updateCount(si);
@@ -1314,7 +1408,7 @@ function subscribeHistory(){
         return d;
       });
       renderHistory();
-      if(state) updatePrevVisitPanel();
+      if(state){ updatePrevVisitPanel(); buildSections(); }
     }, function(err){
       var list = document.getElementById('history-list');
       if(list) list.innerHTML = '<div class="empty-state">N\u00e3o foi poss\u00edvel carregar o hist\u00f3rico da nuvem. Verifique sua conex\u00e3o.</div>';
@@ -1401,11 +1495,12 @@ function resetForm(){
 function renderHistory(){
   var list = $('#history-list');
   list.innerHTML = '';
-  if(!history.length){
-    list.innerHTML = '<div class="empty-state">Nenhum checklist salvo ainda. Finalize um checklist para v\u00ea-lo aqui.</div>';
+  var filtered = histFilterPosto ? history.filter(function(rec){ return rec.postoCode === histFilterPosto; }) : history;
+  if(!filtered.length){
+    list.innerHTML = '<div class="empty-state">'+(histFilterPosto ? 'Nenhum checklist salvo para esse posto ainda.' : 'Nenhum checklist salvo ainda. Finalize um checklist para v\u00ea-lo aqui.')+'</div>';
     return;
   }
-  history.forEach(function(rec, idx){
+  filtered.forEach(function(rec){
     var card = document.createElement('div');
     card.className = 'hist-card';
     var obsExtra = rec.obsCount ? ('<span>\u00b7 '+rec.obsCount+' c/ obs.</span>') : '';
@@ -1415,18 +1510,18 @@ function renderHistory(){
       scoreHtml = '<div class="hist-score" style="color:'+scoreColor+'">Nota do posto: '+rec.score+'%</div>';
     }
     card.innerHTML =
-      '<button class="hist-del" data-idx="'+idx+'" type="button">excluir</button>'+
+      '<button class="hist-del" data-id="'+rec._id+'" type="button">excluir</button>'+
       '<div class="hist-top"><span class="posto">'+escapeHtml(rec.posto||'\u2014')+'</span><span class="data mono">'+formatDateBR(rec.data)+'</span></div>'+
       '<div class="hist-ger">Gerente: '+escapeHtml(rec.gerente||'\u2014')+'</div>'+
       '<div class="hist-stats"><span class="s">'+rec.sim+' SIM</span><span class="n">'+rec.nao+' N\u00c3O</span><span class="p">'+rec.pend+' pend.</span>'+obsExtra+'</div>'+
       scoreHtml+
-      '<button class="hist-pdf" data-idx="'+idx+'" type="button">Ver PDF</button>';
+      '<button class="hist-pdf" data-id="'+rec._id+'" type="button">Ver PDF</button>';
     list.appendChild(card);
   });
   $$('.hist-del', list).forEach(function(btn){
     btn.addEventListener('click', function(){
-      var idx = parseInt(btn.dataset.idx, 10);
-      var rec = history[idx];
+      var rec = history.filter(function(r){ return r._id === btn.dataset.id; })[0];
+      if(!rec) return;
       showModal({
         title:'Excluir registro', message:'Remover este checklist do hist\u00f3rico? (As fotos continuam guardadas no Cloudinary, sem custo, mas deixam de aparecer no app.)',
         buttons:[
@@ -1438,8 +1533,9 @@ function renderHistory(){
   });
   $$('.hist-pdf', list).forEach(function(btn){
     btn.addEventListener('click', function(){
-      var idx = parseInt(btn.dataset.idx, 10);
-      openHistoryPdf(history[idx], btn);
+      var rec = history.filter(function(r){ return r._id === btn.dataset.id; })[0];
+      if(!rec) return;
+      openHistoryPdf(rec, btn);
     });
   });
 }
@@ -1496,6 +1592,7 @@ function showDraftBanner(draft){
 async function startApp(){
   state = freshState();
   populatePostoSelect();
+  populateHistFilter();
   var draft = await storageGet('draft');
 
   buildMetaCard();
