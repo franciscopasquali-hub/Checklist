@@ -53,6 +53,26 @@ body{padding-bottom:96px;}
 .field input:focus-visible,.field select:focus-visible{outline:2px solid var(--brand);outline-offset:1px;}
 
 /* areas */
+/* previous visit reference panel */
+.prev-visit-panel{margin:0 14px 14px;}
+.prev-visit-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;background:#EFEDE4;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink);text-align:left;}
+.prev-visit-arrow{color:var(--ink-soft);flex-shrink:0;margin-left:8px;}
+.prev-visit-content{margin-top:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;max-height:340px;overflow-y:auto;}
+.prev-visit-content.hidden{display:none;}
+.prev-sec h4{font-family:'Oswald',sans-serif;text-transform:uppercase;font-size:11.5px;letter-spacing:.04em;color:var(--brand-dark);margin:10px 0 6px;}
+.prev-sec:first-child h4{margin-top:0;}
+.prev-item{padding:5px 0;border-bottom:1px solid #F0EEE6;}
+.prev-item:last-child{border-bottom:none;}
+.prev-item-main{display:flex;gap:8px;align-items:baseline;}
+.prev-status{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;flex-shrink:0;width:28px;}
+.prev-status.ok{color:var(--green);}
+.prev-status.bad{color:var(--red);}
+.prev-status.pend{color:var(--ink-soft);}
+.prev-label{font-size:12.5px;}
+.prev-obs{font-size:12px;color:var(--ink-soft);margin:2px 0 0 36px;font-style:italic;}
+.prev-thumbs{display:flex;gap:5px;margin:5px 0 0 36px;flex-wrap:wrap;}
+.prev-thumbs img{width:42px;height:42px;object-fit:cover;border-radius:5px;border:1px solid var(--line);}
+
 .area{margin:18px 14px;}
 .area-head{display:flex;align-items:baseline;justify-content:space-between;border-left:4px solid var(--brand);padding-left:10px;margin-bottom:8px;gap:8px;}
 .area-head h2{font-family:'Oswald',sans-serif;font-size:14.5px;text-transform:uppercase;letter-spacing:.04em;margin:0;color:var(--brand-dark);}
@@ -188,6 +208,14 @@ canvas.sig-pad{width:100%;height:120px;display:block;background:repeating-linear
       <div class="field"><label>Gerente</label><input id="f-gerente" type="text" placeholder="Nome do gerente"></div>
       <div class="field"><label>Data</label><div class="static-val" id="f-data-display">&mdash;</div></div>
     </div>
+  </div>
+
+  <div id="prev-visit-panel" class="prev-visit-panel hidden">
+    <button id="prev-visit-toggle" class="prev-visit-toggle" type="button">
+      <span id="prev-visit-summary"></span>
+      <span class="prev-visit-arrow">&#9662;</span>
+    </button>
+    <div id="prev-visit-content" class="prev-visit-content hidden"></div>
   </div>
 
   <div id="sections"></div>
@@ -579,18 +607,90 @@ function syncGerenteName(){
   if(el) el.textContent = state.gerente.trim() ? state.gerente : '\u2014';
 }
 
+function findLastVisit(postoCode){
+  for(var i=0;i<history.length;i++){
+    if(history[i].postoCode === postoCode && Array.isArray(history[i].sections)){
+      return history[i];
+    }
+  }
+  return null;
+}
+
+function renderPrevVisitContent(rec){
+  var container = document.getElementById('prev-visit-content');
+  container.innerHTML = '';
+  rec.sections.forEach(function(sec){
+    var secEl = document.createElement('div');
+    secEl.className = 'prev-sec';
+    var head = document.createElement('h4');
+    head.textContent = sec.title;
+    secEl.appendChild(head);
+    sec.items.forEach(function(it){
+      var row = document.createElement('div');
+      row.className = 'prev-item';
+      var status = it.answer==='sim' ? 'SIM' : (it.answer==='nao' ? 'N\u00c3O' : '\u2014');
+      var statusClass = it.answer==='sim' ? 'ok' : (it.answer==='nao' ? 'bad' : 'pend');
+      var main = document.createElement('div');
+      main.className = 'prev-item-main';
+      main.innerHTML = '<span class="prev-status '+statusClass+'">'+status+'</span><span class="prev-label">'+escapeHtml(it.label)+'</span>';
+      row.appendChild(main);
+      if(it.obs && it.obs.trim()){
+        var obsEl = document.createElement('div');
+        obsEl.className = 'prev-obs';
+        obsEl.textContent = 'Obs: '+it.obs.trim();
+        row.appendChild(obsEl);
+      }
+      if(it.photos && it.photos.length){
+        var thumbs = document.createElement('div');
+        thumbs.className = 'prev-thumbs';
+        it.photos.forEach(function(url){
+          var img = document.createElement('img');
+          img.src = url;
+          img.addEventListener('click', function(){ openImagePreview(url); });
+          thumbs.appendChild(img);
+        });
+        row.appendChild(thumbs);
+      }
+      secEl.appendChild(row);
+    });
+    container.appendChild(secEl);
+  });
+}
+
+function updatePrevVisitPanel(){
+  var panel = document.getElementById('prev-visit-panel');
+  var rec = state.posto ? findLastVisit(state.posto) : null;
+  if(!rec){
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+  var scoreTxt = typeof rec.score === 'number' ? (' \u00b7 Nota '+rec.score+'%') : '';
+  document.getElementById('prev-visit-summary').textContent = 'Ver \u00faltima visita (' + formatDateBR(rec.data) + scoreTxt + ')';
+  renderPrevVisitContent(rec);
+  document.getElementById('prev-visit-content').classList.add('hidden');
+}
+
+function bindPrevVisitToggle(){
+  document.getElementById('prev-visit-toggle').addEventListener('click', function(){
+    document.getElementById('prev-visit-content').classList.toggle('hidden');
+  });
+}
+
 function buildMetaCard(){
   var sel = $('#f-posto'), fg = $('#f-gerente'), fd = $('#f-data-display');
   sel.value = state.posto;
   fg.value = state.gerente;
   fd.textContent = formatDateBR(state.data);
   syncGerenteName();
+  updatePrevVisitPanel();
   sel.onchange = function(){
     state.posto = sel.value;
     var known = GERENTE_POR_POSTO[sel.value] || '';
     state.gerente = known;
     fg.value = known;
     syncGerenteName();
+    updatePrevVisitPanel();
     scheduleAutosave();
   };
   fg.oninput = function(){
@@ -1214,6 +1314,7 @@ function subscribeHistory(){
         return d;
       });
       renderHistory();
+      if(state) updatePrevVisitPanel();
     }, function(err){
       var list = document.getElementById('history-list');
       if(list) list.innerHTML = '<div class="empty-state">N\u00e3o foi poss\u00edvel carregar o hist\u00f3rico da nuvem. Verifique sua conex\u00e3o.</div>';
@@ -1361,6 +1462,7 @@ function bindActions(){
   $('#btn-generate').addEventListener('click', onGenerateClick);
   $('#btn-download').addEventListener('click', triggerDownload);
   $('#btn-share').addEventListener('click', onShareClick);
+  bindPrevVisitToggle();
   $('#btn-newchecklist').addEventListener('click', function(){
     showModal({
       title:'Novo checklist', message:'Isso vai limpar o formul\u00e1rio atual. Deseja continuar?',
