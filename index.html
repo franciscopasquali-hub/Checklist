@@ -82,6 +82,7 @@ body{padding-bottom:96px;}
 .item-main{display:flex;align-items:center;justify-content:space-between;gap:10px;}
 .item-label-wrap{display:flex;align-items:center;gap:6px;flex:1;min-width:0;}
 .item-label{font-size:14.5px;line-height:1.3;}
+.crit-tag{flex-shrink:0;font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;color:#8A8676;background:#EFEDE4;border-radius:4px;padding:2px 5px;line-height:1.2;}
 .prev-alert{flex-shrink:0;width:21px;height:21px;border-radius:50%;border:none;background:#FFE8B8;color:#B86204;font-size:12px;line-height:21px;text-align:center;padding:0;}
 .prev-detail-photos{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
 .prev-detail-photos img{width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:pointer;}
@@ -798,6 +799,14 @@ function buildItemRow(item, si, ii){
   lbl.textContent = item.label;
   labelWrap.appendChild(lbl);
 
+  if(itemWeight(si, ii) === 2){
+    var critTag = document.createElement('span');
+    critTag.className = 'crit-tag';
+    critTag.textContent = 'crítico';
+    critTag.title = 'Item crítico: pesa o dobro na nota';
+    labelWrap.appendChild(critTag);
+  }
+
   var prevFlag = getPrevItemFlag(si, ii);
   if(prevFlag){
     var alertBtn = document.createElement('button');
@@ -1058,20 +1067,34 @@ function getPriorNaoCount(si, ii){
   return count;
 }
 
-function computeScore(){
-  var weighted = 0, totalItems = 0;
+// Itens críticos (peso 2), pela posição no checklist (1 a 31). Os demais têm peso 1.
+var ITENS_CRITICOS = [2, 7, 10, 11, 12, 13, 18, 23, 26, 29];
+
+function itemWeight(si, ii){
+  var pos = ii + 1;
+  for(var s=0; s<si; s++){ pos += state.sections[s].items.length; }
+  return ITENS_CRITICOS.indexOf(pos) !== -1 ? 2 : 1;
+}
+
+function computeScoreDetail(){
+  var lost = 0, possible = 0;
   state.sections.forEach(function(sec, si){
-    totalItems += sec.items.length;
     sec.items.forEach(function(item, ii){
+      var w = itemWeight(si, ii);
+      possible += w;
       if(item.answer==='nao'){
-        weighted += getPriorNaoCount(si, ii) + 1;
+        lost += w * (getPriorNaoCount(si, ii) + 1);
       }
     });
   });
-  var pct = 100 - (weighted/totalItems)*100;
+  var pct = 100 - (lost/possible)*100;
   if(pct < 0) pct = 0;
   if(pct > 100) pct = 100;
-  return Math.round(pct);
+  return { lost: lost, possible: possible, pct: Math.round(pct) };
+}
+
+function computeScore(){
+  return computeScoreDetail().pct;
 }
 
 function buildPdfDoc(model){
@@ -1111,7 +1134,14 @@ function buildPdfDoc(model){
   var scoreColor = score>=90 ? [1,163,80] : (score>=70 ? [184,98,4] : [193,57,43]);
   doc.setFont('helvetica','bold'); doc.setFontSize(11);
   doc.setTextColor(scoreColor[0],scoreColor[1],scoreColor[2]);
-  doc.text('Nota do posto: '+score+'%', marginX, y);
+  var scoreLabel = 'Nota do posto: '+score+'%';
+  doc.text(scoreLabel, marginX, y);
+  if(typeof model.lost === 'number' && typeof model.possible === 'number'){
+    var scoreW = doc.getTextWidth(scoreLabel);
+    doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    doc.setTextColor(140,140,140);
+    doc.text('('+model.lost+' de '+model.possible+' pontos perdidos)', marginX + scoreW + 3, y);
+  }
   doc.setTextColor(30,30,30);
   doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
   y += 9;
@@ -1208,13 +1238,15 @@ function doGenerate(){
     return;
   }
   var totals = countTotals();
-  var score = computeScore();
+  var scoreDetail = computeScoreDetail();
   var model = {
     postoDisplay: postoLabel(state.posto),
     gerente: state.gerente,
     data: state.data,
     totals: totals,
-    score: score,
+    score: scoreDetail.pct,
+    lost: scoreDetail.lost,
+    possible: scoreDetail.possible,
     sig: state.sig,
     sections: state.sections.map(function(sec, si){
       return { title: sec.title, items: sec.items.map(function(item, ii){
@@ -1292,6 +1324,8 @@ async function openHistoryPdf(rec, btn){
       data: rec.data,
       totals: { sim: rec.sim, nao: rec.nao, pend: rec.pend },
       score: rec.score,
+      lost: rec.lost,
+      possible: rec.possible,
       sig: rec.sig || { responsavel:{}, gerente:{} },
       sections: sections
     };
@@ -1387,7 +1421,10 @@ async function saveToHistory(){
       rec.answers.push(it.answer || null);
     });
   });
-  rec.score = computeScore();
+  var recScore = computeScoreDetail();
+  rec.score = recScore.pct;
+  rec.lost = recScore.lost;
+  rec.possible = recScore.possible;
 
   try{
     await docRef.set(rec);
@@ -1432,8 +1469,9 @@ function showResultPanel(){
 function buildEmailBody(){
   var postoTxt = postoLabel(state.posto);
   var totals = countTotals();
-  var score = computeScore();
-  var lines = ['Checklist de visita \u2014 '+postoTxt, 'Gerente: '+state.gerente, 'Data: '+formatDateBR(state.data), 'Total: '+totals.sim+' SIM \u00b7 '+totals.nao+' N\u00c3O \u00b7 '+totals.pend+' pendente(s)', 'Nota do posto: '+score+'%', ''];
+  var sd = computeScoreDetail();
+  var score = sd.pct+'% ('+sd.lost+' de '+sd.possible+' pontos perdidos)';
+  var lines = ['Checklist de visita \u2014 '+postoTxt, 'Gerente: '+state.gerente, 'Data: '+formatDateBR(state.data), 'Total: '+totals.sim+' SIM \u00b7 '+totals.nao+' N\u00c3O \u00b7 '+totals.pend+' pendente(s)', 'Nota do posto: '+score, ''];
   state.sections.forEach(function(sec, si){
     lines.push(sec.title.toUpperCase()+':');
     sec.items.forEach(function(it, ii){
