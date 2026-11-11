@@ -1076,21 +1076,36 @@ function itemWeight(si, ii){
   return ITENS_CRITICOS.indexOf(pos) !== -1 ? 2 : 1;
 }
 
+// Teto de perda por item: um mesmo item crítico, mesmo reincidindo infinitas vezes,
+// tira no máximo 50% da nota; um item não crítico, no máximo 25%.
+var TETO_ITEM_CRITICO = 0.50;
+var TETO_ITEM_NORMAL = 0.25;
+
 function computeScoreDetail(){
-  var lost = 0, possible = 0;
+  var possible = 0;
+  state.sections.forEach(function(sec, si){
+    sec.items.forEach(function(item, ii){ possible += itemWeight(si, ii); });
+  });
+  var lost = 0;
   state.sections.forEach(function(sec, si){
     sec.items.forEach(function(item, ii){
-      var w = itemWeight(si, ii);
-      possible += w;
       if(item.answer==='nao'){
-        lost += w * (getPriorNaoCount(si, ii) + 1);
+        var w = itemWeight(si, ii);
+        var raw = w * (getPriorNaoCount(si, ii) + 1);
+        var cap = possible * (w === 2 ? TETO_ITEM_CRITICO : TETO_ITEM_NORMAL);
+        lost += Math.min(raw, cap);
       }
     });
   });
+  lost = Math.round(lost * 10) / 10;
   var pct = 100 - (lost/possible)*100;
   if(pct < 0) pct = 0;
   if(pct > 100) pct = 100;
   return { lost: lost, possible: possible, pct: Math.round(pct) };
+}
+
+function fmtPts(n){
+  return String(n).replace('.', ',');
 }
 
 function computeScore(){
@@ -1140,7 +1155,7 @@ function buildPdfDoc(model){
     var scoreW = doc.getTextWidth(scoreLabel);
     doc.setFont('helvetica','normal'); doc.setFontSize(9);
     doc.setTextColor(140,140,140);
-    doc.text('('+model.lost+' de '+model.possible+' pontos perdidos)', marginX + scoreW + 3, y);
+    doc.text('('+fmtPts(model.lost)+' de '+model.possible+' pontos perdidos)', marginX + scoreW + 3, y);
   }
   doc.setTextColor(30,30,30);
   doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
@@ -1470,7 +1485,7 @@ function buildEmailBody(){
   var postoTxt = postoLabel(state.posto);
   var totals = countTotals();
   var sd = computeScoreDetail();
-  var score = sd.pct+'% ('+sd.lost+' de '+sd.possible+' pontos perdidos)';
+  var score = sd.pct+'% ('+fmtPts(sd.lost)+' de '+sd.possible+' pontos perdidos)';
   var lines = ['Checklist de visita \u2014 '+postoTxt, 'Gerente: '+state.gerente, 'Data: '+formatDateBR(state.data), 'Total: '+totals.sim+' SIM \u00b7 '+totals.nao+' N\u00c3O \u00b7 '+totals.pend+' pendente(s)', 'Nota do posto: '+score, ''];
   state.sections.forEach(function(sec, si){
     lines.push(sec.title.toUpperCase()+':');
