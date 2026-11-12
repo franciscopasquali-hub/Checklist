@@ -655,7 +655,7 @@ function getPrevItemFlag(si, ii){
   if(!it) return null;
   var hasObs = it.obs && it.obs.trim();
   var hasPhotos = it.photos && it.photos.length;
-  if(!hasObs && !hasPhotos) return null;
+  if(!hasObs && !hasPhotos && it.answer !== 'nao') return null;
   return { obs: it.obs, photos: it.photos || [], answer: it.answer, data: rec.data };
 }
 
@@ -668,6 +668,11 @@ function openPrevItemDetail(label, flag){
   var statusTxt = flag.answer==='nao' ? 'N\u00c3O' : (flag.answer==='sim' ? 'SIM' : '\u2014');
   infoP.textContent = 'Marcado em ' + formatDateBR(flag.data) + ' \u2014 ' + statusTxt;
   msg.appendChild(infoP);
+  if(!(flag.obs && flag.obs.trim()) && !(flag.photos && flag.photos.length)){
+    var noneP = document.createElement('p');
+    noneP.textContent = 'Sem observa\u00e7\u00e3o ou foto registrada nessa visita.';
+    msg.appendChild(noneP);
+  }
   if(flag.obs && flag.obs.trim()){
     var obsP = document.createElement('p');
     obsP.textContent = flag.obs.trim();
@@ -813,7 +818,7 @@ function buildItemRow(item, si, ii){
     alertBtn.type = 'button';
     alertBtn.className = 'prev-alert';
     alertBtn.textContent = '\u26a0';
-    alertBtn.title = 'Teve observa\u00e7\u00e3o ou foto na \u00faltima visita';
+    alertBtn.title = 'Foi N\u00c3O, ou teve observa\u00e7\u00e3o/foto, na \u00faltima visita';
     alertBtn.addEventListener('click', function(e){
       e.stopPropagation();
       openPrevItemDetail(item.label, prevFlag);
@@ -1070,10 +1075,20 @@ function getPriorNaoCount(si, ii){
 // Itens críticos (peso 2), pela posição no checklist (1 a 31). Os demais têm peso 1.
 var ITENS_CRITICOS = [2, 7, 10, 11, 12, 13, 18, 23, 26, 29];
 
+function weightAtPos(pos){
+  return ITENS_CRITICOS.indexOf(pos) !== -1 ? 2 : 1;
+}
+
 function itemWeight(si, ii){
   var pos = ii + 1;
   for(var s=0; s<si; s++){ pos += state.sections[s].items.length; }
-  return ITENS_CRITICOS.indexOf(pos) !== -1 ? 2 : 1;
+  return weightAtPos(pos);
+}
+
+// Pontos perdidos por um único NÃO (peso x reincidência, limitado ao teto do item).
+function itemLossPts(w, reinc, possible){
+  var cap = possible * (w === 2 ? TETO_ITEM_CRITICO : TETO_ITEM_NORMAL);
+  return Math.round(Math.min(w * (reinc + 1), cap) * 10) / 10;
 }
 
 // Teto de perda por item: um mesmo item crítico, mesmo reincidindo infinitas vezes,
@@ -1090,10 +1105,7 @@ function computeScoreDetail(){
   state.sections.forEach(function(sec, si){
     sec.items.forEach(function(item, ii){
       if(item.answer==='nao'){
-        var w = itemWeight(si, ii);
-        var raw = w * (getPriorNaoCount(si, ii) + 1);
-        var cap = possible * (w === 2 ? TETO_ITEM_CRITICO : TETO_ITEM_NORMAL);
-        lost += Math.min(raw, cap);
+        lost += itemLossPts(itemWeight(si, ii), getPriorNaoCount(si, ii), possible);
       }
     });
   });
@@ -1159,7 +1171,15 @@ function buildPdfDoc(model){
   }
   doc.setTextColor(30,30,30);
   doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
-  y += 9;
+  y += 5;
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(8);
+  doc.setTextColor(140,140,140);
+  var legendTxt = '[CRÍTICO] = item de peso dobrado na nota.' + (model.showPts ? ' Ao lado de cada NÃO: pontos perdidos (inclui reincidência).' : '');
+  doc.text(legendTxt, marginX, y);
+  doc.setTextColor(30,30,30);
+  doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+  y += 8;
 
   model.sections.forEach(function(sec){
     ensureSpace(12);
@@ -1174,12 +1194,30 @@ function buildPdfDoc(model){
 
     sec.items.forEach(function(item){
       var status = item.answer==='sim' ? 'SIM' : (item.answer==='nao' ? 'N\u00c3O' : '\u2014');
-      var lines = doc.splitTextToSize(status+'  \u00b7  '+item.label, contentW-4);
+      var showLost = item.answer==='nao' && typeof item.lostPts === 'number';
+      var suffixW = (item.critical ? 21 : 0) + (showLost ? 21 : 0);
+      var lines = doc.splitTextToSize(status+'  \u00b7  '+item.label, contentW-4-suffixW);
       ensureSpace(lines.length*5+3);
       if(item.answer==='sim') doc.setTextColor(1,163,80);
       else if(item.answer==='nao') doc.setTextColor(193,57,43);
       else doc.setTextColor(130,130,130);
       doc.text(lines, marginX+2, y);
+
+      // Selo de item cr\u00edtico e pontos perdidos, na \u00faltima linha do item
+      var sx = marginX + 2 + doc.getTextWidth(lines[lines.length-1]) + 3;
+      var sy = y + (lines.length-1)*5;
+      doc.setFont('helvetica','bold'); doc.setFontSize(8);
+      if(item.critical){
+        var critTxt = '[CR\u00cdTICO]';
+        doc.setTextColor(110,110,110);
+        doc.text(critTxt, sx, sy);
+        sx += doc.getTextWidth(critTxt) + 3;
+      }
+      if(showLost){
+        doc.setTextColor(193,57,43);
+        doc.text('-'+fmtPts(item.lostPts)+' pts', sx, sy);
+      }
+      doc.setFont('helvetica','normal'); doc.setFontSize(10);
       doc.setTextColor(30,30,30);
       y += lines.length*5 + 1;
 
@@ -1263,12 +1301,17 @@ function doGenerate(){
     lost: scoreDetail.lost,
     possible: scoreDetail.possible,
     sig: state.sig,
+    showPts: true,
     sections: state.sections.map(function(sec, si){
       return { title: sec.title, items: sec.items.map(function(item, ii){
+        var w = itemWeight(si, ii);
+        var reinc = item.answer==='nao' ? getPriorNaoCount(si, ii) : 0;
         return {
           label: item.label, answer: item.answer, obs: item.obs,
           photos: item.photos,
-          reincidence: item.answer==='nao' ? getPriorNaoCount(si, ii) : 0
+          reincidence: reinc,
+          critical: w === 2,
+          lostPts: item.answer==='nao' ? itemLossPts(w, reinc, scoreDetail.possible) : null
         };
       })};
     })
@@ -1316,10 +1359,14 @@ async function openHistoryPdf(rec, btn){
   btn.textContent = 'Gerando...';
   try{
     var sections = [];
+    var hasPts = typeof rec.lost === 'number' && typeof rec.possible === 'number';
+    var flatPos = 0;
     for(var si=0; si<rec.sections.length; si++){
       var items = [];
       for(var ii=0; ii<rec.sections[si].items.length; ii++){
         var it = rec.sections[si].items[ii];
+        flatPos++;
+        var wHist = weightAtPos(flatPos);
         var photos = [];
         var urls = it.photos || [];
         for(var pi=0; pi<urls.length; pi++){
@@ -1329,7 +1376,12 @@ async function openHistoryPdf(rec, btn){
             photos.push({ dataURL: durl, width: dims.width, height: dims.height });
           }catch(e){ /* skip broken photo */ }
         }
-        items.push({ label: it.label, answer: it.answer, obs: it.obs, photos: photos, reincidence: it.reincidence || 0 });
+        items.push({
+          label: it.label, answer: it.answer, obs: it.obs, photos: photos,
+          reincidence: it.reincidence || 0,
+          critical: wHist === 2,
+          lostPts: (hasPts && it.answer==='nao') ? itemLossPts(wHist, it.reincidence || 0, rec.possible) : null
+        });
       }
       sections.push({ title: rec.sections[si].title, items: items });
     }
@@ -1341,6 +1393,7 @@ async function openHistoryPdf(rec, btn){
       score: rec.score,
       lost: rec.lost,
       possible: rec.possible,
+      showPts: hasPts,
       sig: rec.sig || { responsavel:{}, gerente:{} },
       sections: sections
     };
@@ -1491,9 +1544,11 @@ function buildEmailBody(){
     lines.push(sec.title.toUpperCase()+':');
     sec.items.forEach(function(it, ii){
       var st = it.answer==='sim' ? 'SIM' : (it.answer==='nao' ? 'N\u00c3O' : '-');
-      lines.push('  ['+st+'] '+it.label);
+      var wMail = itemWeight(si, ii);
+      lines.push('  ['+st+'] '+it.label+(wMail === 2 ? ' [CR\u00cdTICO]' : ''));
       if(it.answer==='nao'){
         var priorCount = getPriorNaoCount(si, ii);
+        lines.push('      Perdeu '+fmtPts(itemLossPts(wMail, priorCount, sd.possible))+' pts');
         if(priorCount > 0) lines.push('      REINCIDENTE \u2014 '+(priorCount+1)+'\u00aa vez neste posto');
       }
       if(it.obs && it.obs.trim()) lines.push('      Obs: '+it.obs.trim());
